@@ -1,11 +1,26 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import crypto from "crypto";
+import rateLimit from "express-rate-limit";
 import { eq } from "drizzle-orm";
 import { db, supportTicketsTable } from "@workspace/db";
 import { logger } from "../lib/logger";
 import { triageEmail } from "../lib/aiTriage";
 
 const router: IRouter = Router();
+
+const STANDARD_LIMITER_OPTS = {
+  standardHeaders: "draft-7" as const,
+  legacyHeaders: false,
+  message: { error: "Too many requests — please slow down and try again shortly." },
+};
+
+// Survive inbound mail floods: 60 webhook deliveries per minute, matching the
+// per-route limiter pattern used in auth.ts / training.ts / stripe.ts.
+const inboundLimiter = rateLimit({
+  windowMs: 60_000,
+  limit: 60,
+  ...STANDARD_LIMITER_OPTS,
+});
 
 const RESEND_RECEIVING_API = "https://api.resend.com/emails";
 
@@ -93,7 +108,7 @@ async function processTicket(ticketId: string, emailId: string): Promise<void> {
   }
 }
 
-router.post("/", async (req: Request, res: Response) => {
+router.post("/", inboundLimiter, async (req: Request, res: Response) => {
   const secret = process.env.RESEND_WEBHOOK_SECRET;
   if (!secret) {
     logger.error("supportInbound: RESEND_WEBHOOK_SECRET not set");
@@ -198,5 +213,56 @@ router.post("/", async (req: Request, res: Response) => {
     );
   }
 });
+
+// DEV-ONLY test mode (Step Final #2 of the spec): lets you simulate an inbound
+// email locally without a real Resend delivery or a valid Svix signature.
+// Registered ONLY when NODE_ENV !== "production" — in production this route
+// does not exist at all, so the signed webhook above is the only entry point.
+if (process.env.NODE_ENV !== "production") {
+  router.post("/__test", async (req: Request, res: Response) => {
+    try {
+      const body = JSON.parse(
+        Buffer.isBuffer(req.body) ? req.body.toString("utf8") : JSON.stringify(req.body ?? {}),
+      ) as { from?: string; subject?: string; text?: string };
+
+      const fakeEmailId = `test_${crypto.randomUUID()}`;
+      const [ticket] = await db
+        .insert(supportTicketsTable)
+        .values({
+          resendEmailId: fakeEmailId,
+          senderAddress: body.from ?? "tester@example.com",
+          subject: body.subject ?? "Test ticket",
+          bodyText: body.text ?? "This is a simulated inbound support email.",
+          status: "new",
+        })
+        .returning({ id: supportTicketsTable.id });
+
+      logger.info({ ticketId: ticket.id }, "supportInbound: TEST ticket created (dev mode)");
+
+      const result = await triageEmail(
+        ticket.id,
+        body.from ?? "tester@example.com",
+        body.subject ?? "Test ticket",
+        body.text ?? "This is a simulated inbound support email.",
+      );
+      await db
+        .update(supportTicketsTable)
+        .set({
+          category: result.category,
+          draftReply: result.draftReply,
+          status: result.draftReply ? "drafted" : "new",
+        })
+        .where(eq(supportTicketsTable.id, ticket.id));
+
+      res.status(200).json({ ok: true, ticketId: ticket.id, category: result.category });
+    } catch (err: unknown) {
+      logger.error(
+        { err: err instanceof Error ? err.message : String(err) },
+        "supportInbound: test route failed",
+      );
+      res.status(500).json({ error: "Test simulation failed" });
+    }
+  });
+}
 
 export default router;
