@@ -50,6 +50,38 @@ inbound email (Resend webhook, Svix-verified, 60 req/min limit)
 | Admin gate (`ADMIN_SECRET`) | `artifacts/api-server/src/middlewares/adminAuth.ts` |
 | Ticket table (Drizzle/Postgres) | `lib/db/src/schema/support.ts` |
 
+## What this repo is (and isn't)
+
+The ClimbSmarter application itself lives in a Replit workspace (Express v5
+monorepo, Postgres + Drizzle). That workspace has no GitHub remote, so this repo
+holds the support-agent feature's source of truth as it was authored: every file
+here mirrors its path in the real app (`lib/db/src/schema/*` → the
+`@workspace/db` package; `artifacts/api-server/src/*` → the API server).
+
+Deploying = applying these files to the Replit workspace at the same paths,
+plus the two small edits to existing files documented in
+[`artifacts/api-server/SUPPORT_AGENT_PATCH_NOTES.md`](artifacts/api-server/SUPPORT_AGENT_PATCH_NOTES.md)
+(the `app.ts` raw-body webhook mount and the `@anthropic-ai/sdk` dependency),
+then running the Drizzle push and restarting.
+
+## Environment
+
+| Secret | Purpose |
+|---|---|
+| `RESEND_WEBHOOK_SECRET` | Svix signature verification of inbound webhooks |
+| `RESEND_API_KEY` | Fetching full inbound emails from the Receiving API |
+| `ANTHROPIC_API_KEY` | The triage + drafting agents |
+| `ADMIN_SECRET` | Gates `/admin/support` and its API routes |
+
+Outbound sending uses the app's existing Replit-Connectors-based Resend client.
+
+## Development test mode
+
+When `NODE_ENV !== "production"` (and only then), `POST /api/support/inbound/__test`
+simulates an inbound email without a Resend delivery or valid signature — see
+the patch notes for the full walkthrough. In production that route does not
+exist; the signed webhook is the sole entry point.
+
 ## Safety invariants
 
 1. **Nothing sends automatically.** One `resend.emails.send()` call exists,

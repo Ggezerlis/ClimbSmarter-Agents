@@ -24,6 +24,14 @@ Instead of using the same generic plan for every climber, ClimbSmarter aims to a
 - Session duration
 - Workout feedback
 
+## Support agent system
+
+This repo also contains ClimbSmarter's AI support-agent system: five specialist
+agents that triage inbound support email and draft replies, with a human
+approving every send — nothing is ever sent automatically. See
+[`AGENTS.md`](AGENTS.md) for the architecture, email flow, deployment mapping,
+and safety invariants.
+
 ## Project Status
 
 ClimbSmarter is currently under active development.
