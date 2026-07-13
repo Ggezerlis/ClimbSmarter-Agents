@@ -70,7 +70,7 @@ curl -X POST http://localhost:3000/api/support/inbound/__test \
   -d '{"from":"climber@example.com","subject":"Cannot log my session","text":"The app crashes when I save a bouldering session on my phone."}'
 
 # 2. Open the admin page and see the ticket + draft:
-#    http://localhost:3000/admin/support?admin_token=<ADMIN_SECRET>
+#    http://localhost:3000/api/admin/support?admin_token=<ADMIN_SECRET>
 
 # 3. Edit the draft if you like, click "Approve & Send" — that click is the only
 #    thing in the entire system that calls Resend's send API (with Re: subject and

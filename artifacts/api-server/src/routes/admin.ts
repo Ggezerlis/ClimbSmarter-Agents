@@ -68,7 +68,10 @@ function timeAgo(d: Date): string {
   return `${Math.floor(s / 86400)}d ago`;
 }
 
-router.get("/admin/support", adminAuth, async (req: Request, res: Response) => {
+// NOTE: the page lives under /api/ because the production front-end
+// (climbsmarter.app) only proxies /api/* to this Express server — anything
+// else is swallowed by the SPA's client-side router.
+router.get("/api/admin/support", adminAuth, async (req: Request, res: Response) => {
   try {
     const statusFilter = typeof req.query.status === "string" ? req.query.status : undefined;
     const adminToken = typeof req.query.admin_token === "string" ? req.query.admin_token : "";
@@ -200,11 +203,11 @@ router.get("/admin/support", adminAuth, async (req: Request, res: Response) => {
 </div></div>
 <main>
   <nav class="pills">
-    ${pill(`/admin/support?admin_token=${tok}`, "All", !statusFilter, all.length)}
-    ${pill(`/admin/support?status=new&admin_token=${tok}`, "New", statusFilter === "new", counts.new)}
-    ${pill(`/admin/support?status=drafted&admin_token=${tok}`, "Drafted", statusFilter === "drafted", counts.drafted)}
-    ${pill(`/admin/support?status=sent&admin_token=${tok}`, "Sent", statusFilter === "sent", counts.sent)}
-    ${pill(`/admin/support?status=dismissed&admin_token=${tok}`, "Dismissed", statusFilter === "dismissed", counts.dismissed)}
+    ${pill(`/api/admin/support?admin_token=${tok}`, "All", !statusFilter, all.length)}
+    ${pill(`/api/admin/support?status=new&admin_token=${tok}`, "New", statusFilter === "new", counts.new)}
+    ${pill(`/api/admin/support?status=drafted&admin_token=${tok}`, "Drafted", statusFilter === "drafted", counts.drafted)}
+    ${pill(`/api/admin/support?status=sent&admin_token=${tok}`, "Sent", statusFilter === "sent", counts.sent)}
+    ${pill(`/api/admin/support?status=dismissed&admin_token=${tok}`, "Dismissed", statusFilter === "dismissed", counts.dismissed)}
   </nav>
   ${cards || `<div class="empty"><div class="big">🧗</div>No tickets here.<br>When support email arrives, the agents will file it for your review.</div>`}
 </main>

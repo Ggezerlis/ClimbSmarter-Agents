@@ -32,7 +32,7 @@ inbound email (Resend webhook, Svix-verified, 60 req/min limit)
         ticket saved with draft (status: drafted)
                     │
                     ▼
-        HUMAN REVIEW at /admin/support (ADMIN_SECRET-gated)
+        HUMAN REVIEW at /api/admin/support (ADMIN_SECRET-gated)
         edit → Approve & Send  ─or─  Dismiss
                     │
                     ▼
@@ -71,7 +71,7 @@ then running the Drizzle push and restarting.
 | `RESEND_WEBHOOK_SECRET` | Svix signature verification of inbound webhooks |
 | `RESEND_API_KEY` | Fetching full inbound emails from the Receiving API |
 | `ANTHROPIC_API_KEY` | The triage + drafting agents |
-| `ADMIN_SECRET` | Gates `/admin/support` and its API routes |
+| `ADMIN_SECRET` | Gates the `/api/admin/support` page and its API routes |
 
 Outbound sending uses the app's existing Replit-Connectors-based Resend client.
 
