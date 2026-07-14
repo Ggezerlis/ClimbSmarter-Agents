@@ -80,21 +80,223 @@ function timeAgo(d: Date): string {
   return `${Math.floor(s / 86400)}d ago`;
 }
 
-// NOTE: the page lives under /api/ because the production front-end
+// ---------------------------------------------------------------------------
+// Shared shell: design tokens, components, and the fixed bottom navigation
+// used by every admin page. All page URLs propagate the admin_token param.
+// ---------------------------------------------------------------------------
+
+const SHELL_CSS = `
+  :root {
+    color-scheme: light dark;
+    --bg: #f7f8fa; --panel: #ffffff; --text: #17191c; --muted: #697177;
+    --line: #e4e7eb; --accent: #1f6feb; --accent-t: #ffffff; --shadow: 0 1px 3px rgba(0,0,0,.07), 0 8px 24px rgba(0,0,0,.05);
+    --ok: #30a46c;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #0d1017; --panel: #151922; --text: #e8eaed; --muted: #8b949e; --line: #262d38; --shadow: 0 1px 3px rgba(0,0,0,.5); }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.55 -apple-system, "Segoe UI", Roboto, sans-serif;
+         padding-bottom: 76px; }
+  .top { position: sticky; top: 0; z-index: 5; backdrop-filter: blur(10px);
+         background: color-mix(in srgb, var(--bg) 82%, transparent); border-bottom: 1px solid var(--line); }
+  .top-inner { max-width: 1080px; margin: 0 auto; padding: 14px 20px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  .brand { font-weight: 700; font-size: 16px; letter-spacing: -.2px; }
+  .brand b { color: var(--accent); }
+  main { max-width: 1080px; margin: 0 auto; padding: 18px 20px 40px; }
+  h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 1.2px; color: var(--muted); margin: 22px 0 12px; }
+  .stats { display: flex; gap: 8px; margin-left: auto; }
+  .stat { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 4px 12px; text-align: center; }
+  .stat b { display: block; font-size: 16px; }
+  .stat span { font-size: 10.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; }
+  .pills { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 18px; }
+  .pill { text-decoration: none; color: var(--text); background: var(--panel); border: 1px solid var(--line);
+          padding: 6px 14px; border-radius: 999px; font-size: 13px; transition: .15s; }
+  .pill:hover { border-color: var(--accent); }
+  .pill.active { background: var(--accent); border-color: var(--accent); color: var(--accent-t); }
+  .pill .count { margin-left: 6px; opacity: .75; font-size: 11.5px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow);
+          padding: 16px 18px; margin-bottom: 16px; }
+  .card header { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 6px; }
+  .agent { font-size: 12px; font-weight: 600; color: var(--agent);
+           background: color-mix(in srgb, var(--agent) 12%, transparent);
+           border: 1px solid color-mix(in srgb, var(--agent) 35%, transparent);
+           padding: 3px 10px; border-radius: 999px; }
+  .chip { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--chip);
+          background: color-mix(in srgb, var(--chip) 14%, transparent); padding: 3px 9px; border-radius: 6px; }
+  .when { margin-left: auto; color: var(--muted); font-size: 12px; }
+  .card h2 { margin: 4px 0 2px; font-size: 15.5px; letter-spacing: -.2px; text-transform: none; color: var(--text); }
+  .sender { color: var(--muted); font-size: 12.5px; margin-bottom: 10px; }
+  details { border: 1px solid var(--line); border-radius: 10px; margin-bottom: 12px; overflow: hidden; }
+  summary { cursor: pointer; padding: 8px 12px; font-size: 12.5px; color: var(--muted); user-select: none; }
+  details pre { margin: 0; padding: 10px 12px; border-top: 1px solid var(--line); white-space: pre-wrap;
+                max-height: 260px; overflow-y: auto; font-size: 12.5px; background: var(--bg); }
+  .draft-label { font-size: 12px; font-weight: 600; display: block; margin-bottom: 5px; }
+  .draft-label em { color: var(--muted); font-weight: 400; }
+  textarea.draft { width: 100%; resize: vertical; background: var(--bg); color: var(--text);
+                   border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; font: inherit; }
+  textarea.draft:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  .card footer { display: flex; gap: 10px; align-items: center; margin-top: 12px; }
+  button { font: inherit; font-weight: 600; border-radius: 10px; padding: 8px 16px; cursor: pointer; transition: .15s; border: 1px solid transparent; }
+  button.send { background: var(--accent); color: var(--accent-t); }
+  button.send:hover:not(:disabled) { filter: brightness(1.1); }
+  button.ghost { background: transparent; color: var(--text); border-color: var(--line); }
+  button.ghost:hover:not(:disabled) { border-color: var(--muted); }
+  button:disabled { opacity: .45; cursor: default; }
+  .sentat { color: var(--muted); font-size: 12px; margin-left: auto; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px; }
+  .agent-card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); padding: 14px 16px; }
+  .agent-card header { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+  .avatar { width: 38px; height: 38px; display: grid; place-items: center; font-size: 19px; border-radius: 50%;
+            background: color-mix(in srgb, var(--agent) 15%, transparent); border: 1px solid color-mix(in srgb, var(--agent) 40%, transparent); }
+  .who { display: flex; flex-direction: column; line-height: 1.25; }
+  .who b { font-size: 14.5px; }
+  .who span { font-size: 11.5px; color: var(--muted); }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); opacity: .4; margin-left: auto; }
+  .dot.on { background: var(--ok); opacity: 1; box-shadow: 0 0 8px var(--ok); }
+  dl { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 14px; margin: 0; }
+  dt { font-size: 10px; text-transform: uppercase; letter-spacing: .8px; color: var(--muted); }
+  dd { margin: 1px 0 0; font-size: 13px; font-weight: 600; }
+  dd.working { color: var(--ok); }
+  dd.idle { color: var(--muted); font-weight: 400; }
+  .feed { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); padding: 6px 0; }
+  .evt { display: flex; gap: 10px; align-items: baseline; padding: 9px 16px; border-bottom: 1px solid var(--line); font-size: 13px; flex-wrap: wrap; }
+  .evt:last-child { border-bottom: 0; }
+  .evt-agent { font-weight: 700; color: var(--agent); }
+  .evt-kind { font-size: 10.5px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted);
+              border: 1px solid var(--line); border-radius: 5px; padding: 1px 6px; }
+  .evt-detail { color: var(--text); }
+  .evt-detail em { color: var(--muted); font-style: normal; }
+  .evt-when { margin-left: auto; color: var(--muted); font-size: 11.5px; white-space: nowrap; }
+  .empty { text-align: center; color: var(--muted); padding: 50px 0; }
+  .empty .big { font-size: 40px; margin-bottom: 8px; }
+  details.report { border: 0; border-bottom: 1px solid var(--line); border-radius: 0; margin: 0; }
+  details.report:last-child { border-bottom: 0; }
+  details.report summary { display: flex; gap: 10px; align-items: baseline; padding: 10px 16px; cursor: pointer; font-size: 13px; flex-wrap: wrap; }
+  details.report pre { border-top: 0; max-height: none; background: color-mix(in srgb, var(--bg) 60%, transparent); padding: 10px 16px 14px; }
+  .appr-count { display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 6px;
+                border-radius: 10px; background: #e5484d; color: #fff; font-size: 11.5px; margin-left: 6px; }
+  .appr-act { margin-left: auto; font-size: 12.5px; color: var(--accent); text-decoration: none; white-space: nowrap; }
+  .appr-bar { display: flex; align-items: center; gap: 10px; padding: 8px 16px 12px; font-size: 12px; color: var(--muted); }
+  .appr-bar button { margin-left: auto; }
+  #toast { position: fixed; bottom: 90px; left: 50%; transform: translateX(-50%) translateY(80px); opacity: 0;
+           background: var(--text); color: var(--bg); padding: 10px 18px; border-radius: 10px; font-weight: 600;
+           transition: .25s; pointer-events: none; z-index: 20; }
+  #toast.show { transform: translateX(-50%); opacity: 1; }
+  .bnav { position: fixed; bottom: 0; left: 0; right: 0; z-index: 15; display: flex; justify-content: space-around;
+          background: color-mix(in srgb, var(--panel) 92%, transparent); backdrop-filter: blur(12px);
+          border-top: 1px solid var(--line); padding: 6px 4px calc(8px + env(safe-area-inset-bottom)); }
+  .bnav a { display: flex; flex-direction: column; align-items: center; gap: 2px; text-decoration: none;
+            color: var(--muted); font-size: 10.5px; font-weight: 600; padding: 4px 10px; border-radius: 10px;
+            position: relative; min-width: 56px; }
+  .bnav a .ic { font-size: 19px; line-height: 1; }
+  .bnav a.active { color: var(--accent); }
+  .bnav .bdg { position: absolute; top: -2px; right: 4px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px;
+               background: #e5484d; color: #fff; font-size: 10px; display: grid; place-items: center; }
+`;
+
+const NAV_ITEMS = [
+  { key: "inbox", icon: "📥", label: "Inbox", path: "/api/admin/support" },
+  { key: "approvals", icon: "✅", label: "Approvals", path: "/api/admin/approvals" },
+  { key: "fleet", icon: "🛰️", label: "Fleet", path: "/api/admin/agents" },
+  { key: "reports", icon: "📄", label: "Reports", path: "/api/admin/reports" },
+  { key: "feed", icon: "📡", label: "Feed", path: "/api/admin/feed" },
+];
+
+function bottomNav(active: string, tok: string, apprCount: number): string {
+  return `<nav class="bnav">${NAV_ITEMS.map(
+    (n) =>
+      `<a class="${n.key === active ? "active" : ""}" href="${n.path}?admin_token=${tok}">` +
+      `<span class="ic">${n.icon}</span>${n.label}` +
+      (n.key === "approvals" && apprCount > 0 ? `<span class="bdg">${apprCount}</span>` : "") +
+      `</a>`,
+  ).join("")}</nav>`;
+}
+
+function pageShell(opts: {
+  title: string;
+  brand: string;
+  active: string;
+  tok: string;
+  apprCount: number;
+  headerExtra?: string;
+  content: string;
+  script?: string;
+}): string {
+  return `<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${opts.title}</title>
+<style>${SHELL_CSS}</style>
+</head>
+<body>
+<div class="top"><div class="top-inner">
+  <span class="brand">Climb<b>Smarter</b> · ${opts.brand}</span>
+  ${opts.headerExtra ?? ""}
+</div></div>
+<main>
+${opts.content}
+</main>
+<div id="toast"></div>
+${bottomNav(opts.active, opts.tok, opts.apprCount)}
+<script>
+  function toast(msg) {
+    const el = document.getElementById('toast');
+    el.textContent = msg; el.classList.add('show');
+    setTimeout(() => el.classList.remove('show'), 2200);
+  }
+${opts.script ?? ""}
+</script>
+</body>
+</html>`;
+}
+
+// Everything currently waiting on a human decision.
+const APPROVAL_AGENTS = [FLEET.coder.name, FLEET.content.name];
+
+async function approvalsData() {
+  const pendingTickets = await db
+    .select({
+      id: supportTicketsTable.id,
+      subject: supportTicketsTable.subject,
+      status: supportTicketsTable.status,
+      createdAt: supportTicketsTable.createdAt,
+    })
+    .from(supportTicketsTable)
+    .where(inArray(supportTicketsTable.status, ["new", "drafted"]))
+    .orderBy(desc(supportTicketsTable.createdAt))
+    .limit(10);
+  const pendingReports = (
+    await db
+      .select()
+      .from(agentReportsTable)
+      .where(inArray(agentReportsTable.status, ["pending"]))
+      .orderBy(desc(agentReportsTable.createdAt))
+      .limit(20)
+  ).filter((r) => APPROVAL_AGENTS.includes(r.agent));
+  return { pendingTickets, pendingReports, count: pendingTickets.length + pendingReports.length };
+}
+
+// NOTE: all admin pages live under /api/ because the production front-end
 // (climbsmarter.app) only proxies /api/* to this Express server — anything
 // else is swallowed by the SPA's client-side router.
+
+// --- Inbox -------------------------------------------------------------------
 router.get("/api/admin/support", adminAuth, async (req: Request, res: Response) => {
   try {
     const statusFilter = typeof req.query.status === "string" ? req.query.status : undefined;
     const adminToken = typeof req.query.admin_token === "string" ? req.query.admin_token : "";
+    const tok = encodeURIComponent(adminToken);
 
     const all = await db.select().from(supportTicketsTable).orderBy(desc(supportTicketsTable.createdAt));
     const tickets = statusFilter ? all.filter((t) => t.status === statusFilter) : all;
+    const { count: apprCount } = await approvalsData();
 
     const counts: Record<string, number> = { new: 0, drafted: 0, sent: 0, dismissed: 0 };
     for (const t of all) counts[t.status] = (counts[t.status] ?? 0) + 1;
 
-    const tok = encodeURIComponent(adminToken);
     const pill = (href: string, label: string, active: boolean, count?: number) =>
       `<a class="pill${active ? " active" : ""}" href="${href}">${label}${
         count !== undefined ? `<span class="count">${count}</span>` : ""
@@ -133,91 +335,7 @@ router.get("/api/admin/support", adminAuth, async (req: Request, res: Response) 
       })
       .join("\n");
 
-    res.status(200).type("html").send(`<!doctype html>
-<html>
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ClimbSmarter Support</title>
-<style>
-  :root {
-    color-scheme: light dark;
-    --bg: #f7f8fa; --panel: #ffffff; --text: #17191c; --muted: #697177;
-    --line: #e4e7eb; --accent: #1f6feb; --accent-t: #ffffff; --shadow: 0 1px 3px rgba(0,0,0,.07), 0 8px 24px rgba(0,0,0,.05);
-  }
-  @media (prefers-color-scheme: dark) {
-    :root { --bg: #101216; --panel: #181b20; --text: #e8eaed; --muted: #8b949e; --line: #2b3138; --shadow: 0 1px 3px rgba(0,0,0,.5); }
-  }
-  * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.55 -apple-system, "Segoe UI", Roboto, sans-serif; }
-  .top { position: sticky; top: 0; z-index: 5; backdrop-filter: blur(10px);
-         background: color-mix(in srgb, var(--bg) 82%, transparent); border-bottom: 1px solid var(--line); }
-  .top-inner { max-width: 960px; margin: 0 auto; padding: 14px 20px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
-  .brand { font-weight: 700; font-size: 16px; letter-spacing: -.2px; }
-  .brand b { color: var(--accent); }
-  .navlink { font-size: 13px; text-decoration: none; color: var(--accent); border: 1px solid var(--line);
-             padding: 5px 12px; border-radius: 999px; }
-  .navlink:hover { border-color: var(--accent); }
-  .stats { display: flex; gap: 8px; margin-left: auto; }
-  .stat { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 4px 12px; text-align: center; }
-  .stat b { display: block; font-size: 16px; }
-  .stat span { font-size: 10.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; }
-  main { max-width: 960px; margin: 0 auto; padding: 18px 20px 60px; }
-  .pills { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 18px; }
-  .pill { text-decoration: none; color: var(--text); background: var(--panel); border: 1px solid var(--line);
-          padding: 6px 14px; border-radius: 999px; font-size: 13px; transition: .15s; }
-  .pill:hover { border-color: var(--accent); }
-  .pill.active { background: var(--accent); border-color: var(--accent); color: var(--accent-t); }
-  .pill .count { margin-left: 6px; opacity: .75; font-size: 11.5px; }
-  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow);
-          padding: 16px 18px; margin-bottom: 16px; }
-  .card header { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 6px; }
-  .agent { font-size: 12px; font-weight: 600; color: var(--agent);
-           background: color-mix(in srgb, var(--agent) 12%, transparent);
-           border: 1px solid color-mix(in srgb, var(--agent) 35%, transparent);
-           padding: 3px 10px; border-radius: 999px; }
-  .chip { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--chip);
-          background: color-mix(in srgb, var(--chip) 14%, transparent); padding: 3px 9px; border-radius: 6px; }
-  .when { margin-left: auto; color: var(--muted); font-size: 12px; }
-  .card h2 { margin: 4px 0 2px; font-size: 15.5px; letter-spacing: -.2px; }
-  .sender { color: var(--muted); font-size: 12.5px; margin-bottom: 10px; }
-  details { border: 1px solid var(--line); border-radius: 10px; margin-bottom: 12px; overflow: hidden; }
-  summary { cursor: pointer; padding: 8px 12px; font-size: 12.5px; color: var(--muted); user-select: none; }
-  details pre { margin: 0; padding: 10px 12px; border-top: 1px solid var(--line); white-space: pre-wrap;
-                max-height: 220px; overflow-y: auto; font-size: 12.5px; background: var(--bg); }
-  .draft-label { font-size: 12px; font-weight: 600; display: block; margin-bottom: 5px; }
-  .draft-label em { color: var(--muted); font-weight: 400; }
-  textarea.draft { width: 100%; resize: vertical; background: var(--bg); color: var(--text);
-                   border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; font: inherit; }
-  textarea.draft:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
-  .card footer { display: flex; gap: 10px; align-items: center; margin-top: 12px; }
-  button { font: inherit; font-weight: 600; border-radius: 10px; padding: 8px 16px; cursor: pointer; transition: .15s; border: 1px solid transparent; }
-  button.send { background: var(--accent); color: var(--accent-t); }
-  button.send:hover:not(:disabled) { filter: brightness(1.1); }
-  button.ghost { background: transparent; color: var(--text); border-color: var(--line); }
-  button.ghost:hover:not(:disabled) { border-color: var(--muted); }
-  button:disabled { opacity: .45; cursor: default; }
-  .sentat { color: var(--muted); font-size: 12px; margin-left: auto; }
-  .empty { text-align: center; color: var(--muted); padding: 60px 0; }
-  .empty .big { font-size: 40px; margin-bottom: 8px; }
-  #toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(80px); opacity: 0;
-           background: var(--text); color: var(--bg); padding: 10px 18px; border-radius: 10px; font-weight: 600;
-           transition: .25s; pointer-events: none; }
-  #toast.show { transform: translateX(-50%); opacity: 1; }
-</style>
-</head>
-<body>
-<div class="top"><div class="top-inner">
-  <span class="brand">Climb<b>Smarter</b> · Support</span>
-  <a class="navlink" href="/api/admin/agents?admin_token=${tok}">🛰️ Agents</a>
-  <div class="stats">
-    <div class="stat"><b>${counts.new}</b><span>new</span></div>
-    <div class="stat"><b>${counts.drafted}</b><span>drafted</span></div>
-    <div class="stat"><b>${counts.sent}</b><span>sent</span></div>
-    <div class="stat"><b>${counts.dismissed}</b><span>dismissed</span></div>
-  </div>
-</div></div>
-<main>
+    const content = `
   <nav class="pills">
     ${pill(`/api/admin/support?admin_token=${tok}`, "All", !statusFilter, all.length)}
     ${pill(`/api/admin/support?status=new&admin_token=${tok}`, "New", statusFilter === "new", counts.new)}
@@ -225,16 +343,10 @@ router.get("/api/admin/support", adminAuth, async (req: Request, res: Response) 
     ${pill(`/api/admin/support?status=sent&admin_token=${tok}`, "Sent", statusFilter === "sent", counts.sent)}
     ${pill(`/api/admin/support?status=dismissed&admin_token=${tok}`, "Dismissed", statusFilter === "dismissed", counts.dismissed)}
   </nav>
-  ${cards || `<div class="empty"><div class="big">🧗</div>No tickets here.<br>When support email arrives, the agents will file it for your review.</div>`}
-</main>
-<div id="toast"></div>
-<script>
+  ${cards || `<div class="empty"><div class="big">🧗</div>No tickets here.<br>When support email arrives, the agents will file it for your review.</div>`}`;
+
+    const script = `
   const ADMIN_TOKEN = ${JSON.stringify(adminToken)};
-  function toast(msg) {
-    const el = document.getElementById('toast');
-    el.textContent = msg; el.classList.add('show');
-    setTimeout(() => el.classList.remove('show'), 2200);
-  }
   async function approveSend(id, btn) {
     btn.disabled = true; btn.textContent = 'Sending…';
     const el = document.querySelector('.card[data-id="' + id + '"] textarea.draft');
@@ -258,10 +370,27 @@ router.get("/api/admin/support", adminAuth, async (req: Request, res: Response) 
       if (r.ok) { toast('Dismissed'); setTimeout(() => location.reload(), 600); }
       else { toast('Dismiss failed'); btn.disabled = false; }
     } catch { toast('Network error'); btn.disabled = false; }
-  }
-</script>
-</body>
-</html>`);
+  }`;
+
+    const stats = `<div class="stats">
+    <div class="stat"><b>${counts.new}</b><span>new</span></div>
+    <div class="stat"><b>${counts.drafted}</b><span>drafted</span></div>
+    <div class="stat"><b>${counts.sent}</b><span>sent</span></div>
+    <div class="stat"><b>${counts.dismissed}</b><span>dismissed</span></div>
+  </div>`;
+
+    res.status(200).type("html").send(
+      pageShell({
+        title: "ClimbSmarter Support",
+        brand: "Inbox",
+        active: "inbox",
+        tok,
+        apprCount,
+        headerExtra: stats,
+        content,
+        script,
+      }),
+    );
   } catch (err: unknown) {
     logger.error(
       { err: err instanceof Error ? err.message : String(err) },
@@ -271,9 +400,83 @@ router.get("/api/admin/support", adminAuth, async (req: Request, res: Response) 
   }
 });
 
-// Fleet dashboard: every agent as a card (status, heartbeat, model, tickets
-// handled) plus a live communications-style feed of agent actions. Same
-// ADMIN_SECRET gate and /api prefix as the support page.
+// --- Approvals ----------------------------------------------------------------
+router.get("/api/admin/approvals", adminAuth, async (req: Request, res: Response) => {
+  try {
+    const adminToken = typeof req.query.admin_token === "string" ? req.query.admin_token : "";
+    const tok = encodeURIComponent(adminToken);
+    const { pendingTickets, pendingReports, count } = await approvalsData();
+
+    const items =
+      count === 0
+        ? `<div class="empty"><div class="big">🎉</div>Nothing waiting on you.<br>The company is handling it.</div>`
+        : [
+            ...pendingTickets.map(
+              (t) => `
+      <div class="evt">
+        <span class="evt-agent" style="--agent:${AGENT_COLORS[FLEET.support.name]}">${FLEET.support.name}</span>
+        <span class="evt-kind">${t.status === "drafted" ? "reply to send" : "needs a draft"}</span>
+        <span class="evt-detail">${escapeHtml(t.subject)}</span>
+        <a class="appr-act" href="/api/admin/support?admin_token=${tok}">Review &amp; send →</a>
+        <span class="evt-when">${timeAgo(t.createdAt)}</span>
+      </div>`,
+            ),
+            ...pendingReports.map((r) => {
+              const color = AGENT_COLORS[r.agent] ?? "#697177";
+              const hint =
+                r.agent === FLEET.coder.name
+                  ? "To apply: tell Claude “apply Daedalus's latest proposal”."
+                  : "Publish wherever you like, then mark reviewed.";
+              return `
+      <details class="report">
+        <summary><span class="evt-agent" style="--agent:${color}">${escapeHtml(r.agent)}</span>
+          <span class="evt-kind">${r.agent === FLEET.coder.name ? "code proposal" : "content draft"}</span>
+          <b>${escapeHtml(r.title)}</b><span class="evt-when">${timeAgo(r.createdAt)}</span></summary>
+        <pre>${escapeHtml(r.body).slice(0, 8000)}</pre>
+        <div class="appr-bar"><span>${hint}</span>
+          <button class="ghost" onclick="markReviewed('${r.id}', this)">Mark reviewed ✓</button></div>
+      </details>`;
+            }),
+          ].join("\n");
+
+    const script = `
+  const ADMIN_TOKEN = ${JSON.stringify(adminToken)};
+  async function markReviewed(id, btn) {
+    btn.disabled = true; btn.textContent = 'Saving…';
+    try {
+      const r = await fetch('/api/admin/reports/' + id + '/reviewed', {
+        method: 'PATCH',
+        headers: { 'x-admin-token': ADMIN_TOKEN },
+      });
+      if (r.ok) location.reload(); else { btn.disabled = false; btn.textContent = 'Mark reviewed ✓'; }
+    } catch { btn.disabled = false; btn.textContent = 'Mark reviewed ✓'; }
+  }
+  setTimeout(() => location.reload(), 30000);`;
+
+    res.status(200).type("html").send(
+      pageShell({
+        title: "ClimbSmarter Approvals",
+        brand: "Approvals",
+        active: "approvals",
+        tok,
+        apprCount: count,
+        content: `<h2>Needs your approval ${count ? `<span class="appr-count">${count}</span>` : ""}</h2>
+  <div class="feed">
+${items}
+  </div>`,
+        script,
+      }),
+    );
+  } catch (err: unknown) {
+    logger.error(
+      { err: err instanceof Error ? err.message : String(err) },
+      "admin.approvals: failed to render page",
+    );
+    res.status(500).send("Internal error");
+  }
+});
+
+// --- Fleet ---------------------------------------------------------------------
 router.get("/api/admin/agents", adminAuth, async (req: Request, res: Response) => {
   try {
     const adminToken = typeof req.query.admin_token === "string" ? req.query.admin_token : "";
@@ -284,33 +487,7 @@ router.get("/api/admin/agents", adminAuth, async (req: Request, res: Response) =
       .from(agentEventsTable)
       .orderBy(desc(agentEventsTable.createdAt))
       .limit(100);
-    const reports = await db
-      .select()
-      .from(agentReportsTable)
-      .orderBy(desc(agentReportsTable.createdAt))
-      .limit(12);
-
-    // Everything currently waiting on a human decision.
-    const APPROVAL_AGENTS = [FLEET.coder.name, FLEET.content.name];
-    const pendingTickets = await db
-      .select({
-        id: supportTicketsTable.id,
-        subject: supportTicketsTable.subject,
-        status: supportTicketsTable.status,
-        createdAt: supportTicketsTable.createdAt,
-      })
-      .from(supportTicketsTable)
-      .where(inArray(supportTicketsTable.status, ["new", "drafted"]))
-      .orderBy(desc(supportTicketsTable.createdAt))
-      .limit(10);
-    const pendingReports = await db
-      .select()
-      .from(agentReportsTable)
-      .where(inArray(agentReportsTable.status, ["pending"]))
-      .orderBy(desc(agentReportsTable.createdAt))
-      .limit(20)
-      .then((rows) => rows.filter((r) => APPROVAL_AGENTS.includes(r.agent)));
-    const approvalCount = pendingTickets.length + pendingReports.length;
+    const { count: apprCount } = await approvalsData();
 
     const now = Date.now();
     const fleet = [FLEET.chief, FLEET.coder, FLEET.support, FLEET.ops, FLEET.analytics, FLEET.content, FLEET.research];
@@ -340,8 +517,93 @@ router.get("/api/admin/agents", adminAuth, async (req: Request, res: Response) =
       })
       .join("\n");
 
+    res.status(200).type("html").send(
+      pageShell({
+        title: "ClimbSmarter Agents",
+        brand: "Fleet",
+        active: "fleet",
+        tok,
+        apprCount,
+        content: `<h2>Core fleet</h2>
+  <div class="grid">
+${agentCards}
+  </div>`,
+        script: `  setTimeout(() => location.reload(), 20000);`,
+      }),
+    );
+  } catch (err: unknown) {
+    logger.error(
+      { err: err instanceof Error ? err.message : String(err) },
+      "admin.agents: failed to render page",
+    );
+    res.status(500).send("Internal error");
+  }
+});
+
+// --- Reports --------------------------------------------------------------------
+router.get("/api/admin/reports", adminAuth, async (req: Request, res: Response) => {
+  try {
+    const adminToken = typeof req.query.admin_token === "string" ? req.query.admin_token : "";
+    const tok = encodeURIComponent(adminToken);
+    const reports = await db
+      .select()
+      .from(agentReportsTable)
+      .orderBy(desc(agentReportsTable.createdAt))
+      .limit(30);
+    const { count: apprCount } = await approvalsData();
+
+    const items = reports.length
+      ? reports
+          .map((r) => {
+            const color = AGENT_COLORS[r.agent] ?? "#697177";
+            const pending = r.status === "pending" && APPROVAL_AGENTS.includes(r.agent);
+            return `
+      <details class="report">
+        <summary><span class="evt-agent" style="--agent:${color}">${escapeHtml(r.agent)}</span>
+          <b>${escapeHtml(r.title)}</b>
+          ${pending ? `<span class="chip" style="--chip:#e5484d">pending review</span>` : ""}
+          <span class="evt-when">${timeAgo(r.createdAt)}</span></summary>
+        <pre>${escapeHtml(r.body).slice(0, 8000)}</pre>
+      </details>`;
+          })
+          .join("\n")
+      : `<div class="empty">No reports yet — Argus, Metis, Calliope, Atlas, Daedalus and Chief file them on their own schedules.</div>`;
+
+    res.status(200).type("html").send(
+      pageShell({
+        title: "ClimbSmarter Reports",
+        brand: "Reports",
+        active: "reports",
+        tok,
+        apprCount,
+        content: `<h2>All reports</h2>
+  <div class="feed">
+${items}
+  </div>`,
+      }),
+    );
+  } catch (err: unknown) {
+    logger.error(
+      { err: err instanceof Error ? err.message : String(err) },
+      "admin.reports: failed to render page",
+    );
+    res.status(500).send("Internal error");
+  }
+});
+
+// --- Feed -----------------------------------------------------------------------
+router.get("/api/admin/feed", adminAuth, async (req: Request, res: Response) => {
+  try {
+    const adminToken = typeof req.query.admin_token === "string" ? req.query.admin_token : "";
+    const tok = encodeURIComponent(adminToken);
+    const events = await db
+      .select()
+      .from(agentEventsTable)
+      .orderBy(desc(agentEventsTable.createdAt))
+      .limit(80);
+    const { count: apprCount } = await approvalsData();
+
     const feed = events
-      .slice(0, 40)
       .map((e) => {
         const color = AGENT_COLORS[e.agent] ?? "#697177";
         return `
@@ -354,162 +616,24 @@ router.get("/api/admin/agents", adminAuth, async (req: Request, res: Response) =
       })
       .join("\n");
 
-    res.status(200).type("html").send(`<!doctype html>
-<html>
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ClimbSmarter Agents</title>
-<style>
-  :root {
-    color-scheme: light dark;
-    --bg: #f7f8fa; --panel: #ffffff; --text: #17191c; --muted: #697177;
-    --line: #e4e7eb; --accent: #1f6feb; --accent-t: #ffffff; --shadow: 0 1px 3px rgba(0,0,0,.07), 0 8px 24px rgba(0,0,0,.05);
-    --ok: #30a46c;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root { --bg: #0d1017; --panel: #151922; --text: #e8eaed; --muted: #8b949e; --line: #262d38; --shadow: 0 1px 3px rgba(0,0,0,.5); }
-  }
-  * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.55 -apple-system, "Segoe UI", Roboto, sans-serif; }
-  .top { position: sticky; top: 0; z-index: 5; backdrop-filter: blur(10px);
-         background: color-mix(in srgb, var(--bg) 82%, transparent); border-bottom: 1px solid var(--line); }
-  .top-inner { max-width: 1080px; margin: 0 auto; padding: 14px 20px; display: flex; align-items: center; gap: 14px; }
-  .brand { font-weight: 700; font-size: 16px; }
-  .brand b { color: var(--accent); }
-  .navlink { font-size: 13px; text-decoration: none; color: var(--accent); border: 1px solid var(--line);
-             padding: 5px 12px; border-radius: 999px; margin-left: auto; }
-  .navlink:hover { border-color: var(--accent); }
-  main { max-width: 1080px; margin: 0 auto; padding: 20px; }
-  h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 1.2px; color: var(--muted); margin: 22px 0 12px; }
-  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px; }
-  .agent-card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); padding: 14px 16px; }
-  .agent-card header { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
-  .avatar { width: 38px; height: 38px; display: grid; place-items: center; font-size: 19px; border-radius: 50%;
-            background: color-mix(in srgb, var(--agent) 15%, transparent); border: 1px solid color-mix(in srgb, var(--agent) 40%, transparent); }
-  .who { display: flex; flex-direction: column; line-height: 1.25; }
-  .who b { font-size: 14.5px; }
-  .who span { font-size: 11.5px; color: var(--muted); }
-  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); opacity: .4; margin-left: auto; }
-  .dot.on { background: var(--ok); opacity: 1; box-shadow: 0 0 8px var(--ok); }
-  dl { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 14px; margin: 0; }
-  dt { font-size: 10px; text-transform: uppercase; letter-spacing: .8px; color: var(--muted); }
-  dd { margin: 1px 0 0; font-size: 13px; font-weight: 600; }
-  dd.working { color: var(--ok); }
-  dd.idle { color: var(--muted); font-weight: 400; }
-  .feed { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); padding: 6px 0; }
-  .evt { display: flex; gap: 10px; align-items: baseline; padding: 9px 16px; border-bottom: 1px solid var(--line); font-size: 13px; flex-wrap: wrap; }
-  .evt:last-child { border-bottom: 0; }
-  .evt-agent { font-weight: 700; color: var(--agent); }
-  .evt-kind { font-size: 10.5px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted);
-              border: 1px solid var(--line); border-radius: 5px; padding: 1px 6px; }
-  .evt-detail { color: var(--text); }
-  .evt-detail em { color: var(--muted); font-style: normal; }
-  .evt-when { margin-left: auto; color: var(--muted); font-size: 11.5px; white-space: nowrap; }
-  .empty { text-align: center; color: var(--muted); padding: 40px 0; }
-  details.report { border-bottom: 1px solid var(--line); }
-  details.report:last-child { border-bottom: 0; }
-  details.report summary { display: flex; gap: 10px; align-items: baseline; padding: 10px 16px; cursor: pointer; font-size: 13px; }
-  details.report pre { margin: 0; padding: 10px 16px 14px; white-space: pre-wrap; font-size: 12.5px; color: var(--text);
-                       background: color-mix(in srgb, var(--bg) 60%, transparent); }
-  .appr-count { display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 6px;
-                border-radius: 10px; background: #e5484d; color: #fff; font-size: 11.5px; margin-left: 6px; }
-  .appr-act { margin-left: auto; font-size: 12.5px; color: var(--accent); text-decoration: none; white-space: nowrap; }
-  .appr-bar { display: flex; align-items: center; gap: 10px; padding: 8px 16px 12px; font-size: 12px; color: var(--muted); }
-  .appr-bar button { margin-left: auto; font: inherit; font-weight: 600; cursor: pointer; border-radius: 8px;
-                     padding: 6px 12px; background: transparent; color: var(--text); border: 1px solid var(--line); }
-  .appr-bar button:hover:not(:disabled) { border-color: var(--accent); }
-  .appr-bar button:disabled { opacity: .5; cursor: default; }
-</style>
-</head>
-<body>
-<div class="top"><div class="top-inner">
-  <span class="brand">Climb<b>Smarter</b> · Agents</span>
-  <a class="navlink" href="/api/admin/support?admin_token=${tok}">📥 Support inbox</a>
-</div></div>
-<main>
-  <h2>Needs your approval ${approvalCount ? `<span class="appr-count">${approvalCount}</span>` : ""}</h2>
-  <div class="feed">
-${
-  approvalCount === 0
-    ? `<div class="empty">Nothing waiting on you. The company is handling it. 🎉</div>`
-    : [
-        ...pendingTickets.map(
-          (t) => `
-      <div class="evt">
-        <span class="evt-agent" style="--agent:${AGENT_COLORS[FLEET.support.name]}">${FLEET.support.name}</span>
-        <span class="evt-kind">${t.status === "drafted" ? "reply to send" : "needs a draft"}</span>
-        <span class="evt-detail">${escapeHtml(t.subject)}</span>
-        <a class="appr-act" href="/api/admin/support?admin_token=${tok}">Review &amp; send →</a>
-        <span class="evt-when">${timeAgo(t.createdAt)}</span>
-      </div>`,
-        ),
-        ...pendingReports.map((r) => {
-          const color = AGENT_COLORS[r.agent] ?? "#697177";
-          const hint =
-            r.agent === FLEET.coder.name
-              ? "To apply: tell Claude “apply Daedalus's latest proposal”."
-              : "Publish wherever you like, then mark reviewed.";
-          return `
-      <details class="report">
-        <summary><span class="evt-agent" style="--agent:${color}">${escapeHtml(r.agent)}</span>
-          <span class="evt-kind">${r.agent === FLEET.coder.name ? "code proposal" : "content draft"}</span>
-          <b>${escapeHtml(r.title)}</b><span class="evt-when">${timeAgo(r.createdAt)}</span></summary>
-        <pre>${escapeHtml(r.body).slice(0, 8000)}</pre>
-        <div class="appr-bar"><span>${hint}</span>
-          <button class="ghost" onclick="markReviewed('${r.id}', this)">Mark reviewed ✓</button></div>
-      </details>`;
-        }),
-      ].join("\n")
-}
-  </div>
-  <h2>Core fleet</h2>
-  <div class="grid">
-${agentCards}
-  </div>
-  <h2>Reports</h2>
-  <div class="feed">
-${
-  reports.length
-    ? reports
-        .map((r) => {
-          const color = AGENT_COLORS[r.agent] ?? "#697177";
-          return `
-      <details class="report">
-        <summary><span class="evt-agent" style="--agent:${color}">${escapeHtml(r.agent)}</span>
-          <b>${escapeHtml(r.title)}</b><span class="evt-when">${timeAgo(r.createdAt)}</span></summary>
-        <pre>${escapeHtml(r.body).slice(0, 8000)}</pre>
-      </details>`;
-        })
-        .join("\n")
-    : `<div class="empty">No reports yet — Argus, Metis, Calliope, Atlas and Chief file them on their own schedules.</div>`
-}
-  </div>
-  <h2>Live feed</h2>
+    res.status(200).type("html").send(
+      pageShell({
+        title: "ClimbSmarter Feed",
+        brand: "Live feed",
+        active: "feed",
+        tok,
+        apprCount,
+        content: `<h2>Communications</h2>
   <div class="feed">
 ${feed || `<div class="empty">No agent activity yet — it starts the moment the first support email arrives.</div>`}
-  </div>
-</main>
-<script>
-  const ADMIN_TOKEN = ${JSON.stringify(adminToken)};
-  async function markReviewed(id, btn) {
-    btn.disabled = true; btn.textContent = 'Saving…';
-    try {
-      const r = await fetch('/api/admin/reports/' + id + '/reviewed', {
-        method: 'PATCH',
-        headers: { 'x-admin-token': ADMIN_TOKEN },
-      });
-      if (r.ok) location.reload(); else { btn.disabled = false; btn.textContent = 'Mark reviewed ✓'; }
-    } catch { btn.disabled = false; btn.textContent = 'Mark reviewed ✓'; }
-  }
-  setTimeout(() => location.reload(), 20000);
-</script>
-</body>
-</html>`);
+  </div>`,
+        script: `  setTimeout(() => location.reload(), 20000);`,
+      }),
+    );
   } catch (err: unknown) {
     logger.error(
       { err: err instanceof Error ? err.message : String(err) },
-      "admin.agents: failed to render page",
+      "admin.feed: failed to render page",
     );
     res.status(500).send("Internal error");
   }
