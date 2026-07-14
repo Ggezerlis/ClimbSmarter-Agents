@@ -1,6 +1,6 @@
 # ClimbSmarter — The Agent Company
 
-An AI company with one human. Six agents, each with a real job: five run fully autonomously on schedules; Hermes handles support with every outbound reply gated behind George's click. No agent can send email; the only send call in
+An AI company with one human. Seven agents, each with a real job: five run fully autonomously on schedules; Hermes handles support with every outbound reply gated behind George's click. No agent can send email; the only send call in
 the codebase is the human-triggered **Approve & Send** handler in
 `artifacts/api-server/src/routes/admin.ts`.
 
@@ -104,6 +104,7 @@ exist; the signed webhook is the sole entry point.
 | Agent | Job | Cadence | Autonomy |
 |---|---|---|---|
 | 🎯 Chief | Orchestrator — daily company brief (team activity + support stats) | daily | full |
+| 🛠️ Daedalus | Engineer — daily engineering proposals with diff sketches, mined from error telemetry, bug tickets, and Atlas's research; cannot modify or deploy code himself | daily | proposals only; a human applies diffs |
 | 🧭 Hermes | Support — triage, spam gate, category-skill drafting | per email | drafts only; **send needs George** |
 | 👁️ Argus | Ops Monitor — DB/secrets health checks; files a report only when something's wrong | 15 min | full |
 | 📊 Metis | Analytics — daily support digest | daily | full |

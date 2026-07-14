@@ -53,6 +53,7 @@ const AGENT_COLORS: Record<string, string> = {
   [FLEET.analytics.name]: "#30a46c",
   [FLEET.content.name]: "#8e4ec6",
   [FLEET.research.name]: "#e5484d",
+  [FLEET.coder.name]: "#f76b15",
   "George (human)": "#f5a623",
 };
 
@@ -290,7 +291,7 @@ router.get("/api/admin/agents", adminAuth, async (req: Request, res: Response) =
       .limit(12);
 
     const now = Date.now();
-    const fleet = [FLEET.chief, FLEET.support, FLEET.ops, FLEET.analytics, FLEET.content, FLEET.research];
+    const fleet = [FLEET.chief, FLEET.coder, FLEET.support, FLEET.ops, FLEET.analytics, FLEET.content, FLEET.research];
 
     const agentCards = fleet
       .map((a) => {

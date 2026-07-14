@@ -12,6 +12,7 @@ export const FLEET = {
   analytics: { name: "Metis", role: "Analytics", icon: "📊" },
   content: { name: "Calliope", role: "Content", icon: "✍️" },
   research: { name: "Atlas", role: "Research", icon: "🧠" },
+  coder: { name: "Daedalus", role: "Engineer", icon: "🛠️" },
 } as const;
 
 export type AgentEventKind =
