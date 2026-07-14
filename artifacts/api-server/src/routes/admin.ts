@@ -1,6 +1,6 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { Resend } from "resend";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, inArray } from "drizzle-orm";
 import { db, supportTicketsTable, agentEventsTable, agentReportsTable } from "@workspace/db";
 import { adminAuth } from "../middlewares/adminAuth";
 import { logger } from "../lib/logger";
@@ -290,6 +290,28 @@ router.get("/api/admin/agents", adminAuth, async (req: Request, res: Response) =
       .orderBy(desc(agentReportsTable.createdAt))
       .limit(12);
 
+    // Everything currently waiting on a human decision.
+    const APPROVAL_AGENTS = [FLEET.coder.name, FLEET.content.name];
+    const pendingTickets = await db
+      .select({
+        id: supportTicketsTable.id,
+        subject: supportTicketsTable.subject,
+        status: supportTicketsTable.status,
+        createdAt: supportTicketsTable.createdAt,
+      })
+      .from(supportTicketsTable)
+      .where(inArray(supportTicketsTable.status, ["new", "drafted"]))
+      .orderBy(desc(supportTicketsTable.createdAt))
+      .limit(10);
+    const pendingReports = await db
+      .select()
+      .from(agentReportsTable)
+      .where(inArray(agentReportsTable.status, ["pending"]))
+      .orderBy(desc(agentReportsTable.createdAt))
+      .limit(20)
+      .then((rows) => rows.filter((r) => APPROVAL_AGENTS.includes(r.agent)));
+    const approvalCount = pendingTickets.length + pendingReports.length;
+
     const now = Date.now();
     const fleet = [FLEET.chief, FLEET.coder, FLEET.support, FLEET.ops, FLEET.analytics, FLEET.content, FLEET.research];
 
@@ -390,6 +412,14 @@ router.get("/api/admin/agents", adminAuth, async (req: Request, res: Response) =
   details.report summary { display: flex; gap: 10px; align-items: baseline; padding: 10px 16px; cursor: pointer; font-size: 13px; }
   details.report pre { margin: 0; padding: 10px 16px 14px; white-space: pre-wrap; font-size: 12.5px; color: var(--text);
                        background: color-mix(in srgb, var(--bg) 60%, transparent); }
+  .appr-count { display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 6px;
+                border-radius: 10px; background: #e5484d; color: #fff; font-size: 11.5px; margin-left: 6px; }
+  .appr-act { margin-left: auto; font-size: 12.5px; color: var(--accent); text-decoration: none; white-space: nowrap; }
+  .appr-bar { display: flex; align-items: center; gap: 10px; padding: 8px 16px 12px; font-size: 12px; color: var(--muted); }
+  .appr-bar button { margin-left: auto; font: inherit; font-weight: 600; cursor: pointer; border-radius: 8px;
+                     padding: 6px 12px; background: transparent; color: var(--text); border: 1px solid var(--line); }
+  .appr-bar button:hover:not(:disabled) { border-color: var(--accent); }
+  .appr-bar button:disabled { opacity: .5; cursor: default; }
 </style>
 </head>
 <body>
@@ -398,6 +428,41 @@ router.get("/api/admin/agents", adminAuth, async (req: Request, res: Response) =
   <a class="navlink" href="/api/admin/support?admin_token=${tok}">📥 Support inbox</a>
 </div></div>
 <main>
+  <h2>Needs your approval ${approvalCount ? `<span class="appr-count">${approvalCount}</span>` : ""}</h2>
+  <div class="feed">
+${
+  approvalCount === 0
+    ? `<div class="empty">Nothing waiting on you. The company is handling it. 🎉</div>`
+    : [
+        ...pendingTickets.map(
+          (t) => `
+      <div class="evt">
+        <span class="evt-agent" style="--agent:${AGENT_COLORS[FLEET.support.name]}">${FLEET.support.name}</span>
+        <span class="evt-kind">${t.status === "drafted" ? "reply to send" : "needs a draft"}</span>
+        <span class="evt-detail">${escapeHtml(t.subject)}</span>
+        <a class="appr-act" href="/api/admin/support?admin_token=${tok}">Review &amp; send →</a>
+        <span class="evt-when">${timeAgo(t.createdAt)}</span>
+      </div>`,
+        ),
+        ...pendingReports.map((r) => {
+          const color = AGENT_COLORS[r.agent] ?? "#697177";
+          const hint =
+            r.agent === FLEET.coder.name
+              ? "To apply: tell Claude “apply Daedalus's latest proposal”."
+              : "Publish wherever you like, then mark reviewed.";
+          return `
+      <details class="report">
+        <summary><span class="evt-agent" style="--agent:${color}">${escapeHtml(r.agent)}</span>
+          <span class="evt-kind">${r.agent === FLEET.coder.name ? "code proposal" : "content draft"}</span>
+          <b>${escapeHtml(r.title)}</b><span class="evt-when">${timeAgo(r.createdAt)}</span></summary>
+        <pre>${escapeHtml(r.body).slice(0, 8000)}</pre>
+        <div class="appr-bar"><span>${hint}</span>
+          <button class="ghost" onclick="markReviewed('${r.id}', this)">Mark reviewed ✓</button></div>
+      </details>`;
+        }),
+      ].join("\n")
+}
+  </div>
   <h2>Core fleet</h2>
   <div class="grid">
 ${agentCards}
@@ -425,7 +490,20 @@ ${
 ${feed || `<div class="empty">No agent activity yet — it starts the moment the first support email arrives.</div>`}
   </div>
 </main>
-<script>setTimeout(() => location.reload(), 20000);</script>
+<script>
+  const ADMIN_TOKEN = ${JSON.stringify(adminToken)};
+  async function markReviewed(id, btn) {
+    btn.disabled = true; btn.textContent = 'Saving…';
+    try {
+      const r = await fetch('/api/admin/reports/' + id + '/reviewed', {
+        method: 'PATCH',
+        headers: { 'x-admin-token': ADMIN_TOKEN },
+      });
+      if (r.ok) location.reload(); else { btn.disabled = false; btn.textContent = 'Mark reviewed ✓'; }
+    } catch { btn.disabled = false; btn.textContent = 'Mark reviewed ✓'; }
+  }
+  setTimeout(() => location.reload(), 20000);
+</script>
 </body>
 </html>`);
   } catch (err: unknown) {
@@ -434,6 +512,23 @@ ${feed || `<div class="empty">No agent activity yet — it starts the moment the
       "admin.agents: failed to render page",
     );
     res.status(500).send("Internal error");
+  }
+});
+
+// Mark a pending report (Daedalus proposal / Calliope draft) as handled by a
+// human — removes it from the approvals queue. Review-state only; no other action.
+router.patch("/api/admin/reports/:id/reviewed", adminAuth, async (req: Request, res: Response) => {
+  const { id } = req.params;
+  try {
+    await db.update(agentReportsTable).set({ status: "reviewed" }).where(eq(agentReportsTable.id, id));
+    logger.info({ reportId: id }, "admin.reports: marked reviewed");
+    res.status(200).json({ ok: true });
+  } catch (err: unknown) {
+    logger.error(
+      { err: err instanceof Error ? err.message : String(err), reportId: id },
+      "admin.reports: failed to mark reviewed",
+    );
+    res.status(500).json({ error: "Internal error" });
   }
 });
 

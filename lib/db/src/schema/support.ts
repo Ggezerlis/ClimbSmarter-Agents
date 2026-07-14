@@ -48,5 +48,9 @@ export const agentReportsTable = pgTable("agent_reports", {
   agent: text("agent").notNull(),
   title: text("title").notNull(),
   body: text("body").notNull().default(""),
+  // pending: awaiting a human decision (only meaningful for agents whose
+  // output needs approval — Daedalus proposals, Calliope drafts);
+  // reviewed: a human has dealt with it.
+  status: text("status").notNull().default("pending"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
