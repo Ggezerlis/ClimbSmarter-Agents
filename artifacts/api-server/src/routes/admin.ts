@@ -159,6 +159,12 @@ const SHELL_CSS = `
   dd { margin: 1px 0 0; font-size: 13px; font-weight: 600; }
   dd.working { color: var(--ok); }
   dd.idle { color: var(--muted); font-weight: 400; }
+  .bubble { margin-top: 10px; font-size: 12.5px; font-style: italic; color: var(--text);
+            background: color-mix(in srgb, var(--agent) 8%, transparent);
+            border: 1px solid color-mix(in srgb, var(--agent) 22%, transparent);
+            border-radius: 12px 12px 12px 3px; padding: 8px 11px; line-height: 1.45; }
+  .bubble.muted { color: var(--muted); font-style: normal; }
+  .bubble-when { display: block; margin-top: 3px; font-size: 10.5px; font-style: normal; color: var(--muted); }
   .feed { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); padding: 6px 0; }
   .evt { display: flex; gap: 10px; align-items: baseline; padding: 9px 16px; border-bottom: 1px solid var(--line); font-size: 13px; flex-wrap: wrap; }
   .evt:last-child { border-bottom: 0; }
@@ -486,7 +492,7 @@ router.get("/api/admin/agents", adminAuth, async (req: Request, res: Response) =
       .select()
       .from(agentEventsTable)
       .orderBy(desc(agentEventsTable.createdAt))
-      .limit(100);
+      .limit(200);
     const { count: apprCount } = await approvalsData();
 
     const now = Date.now();
@@ -499,6 +505,7 @@ router.get("/api/admin/agents", adminAuth, async (req: Request, res: Response) =
         const lastMs = last ? now - last.createdAt.getTime() : Infinity;
         const working = lastMs < 90_000;
         const handled = new Set(mine.filter((e) => e.ticketId).map((e) => e.ticketId)).size;
+        const lastThought = mine.find((e) => e.kind === "thought");
         const color = AGENT_COLORS[a.name] ?? "#697177";
         return `
       <article class="agent-card" style="--agent:${color}">
@@ -513,7 +520,26 @@ router.get("/api/admin/agents", adminAuth, async (req: Request, res: Response) =
           <div><dt>Model</dt><dd>Sonnet 4.6</dd></div>
           <div><dt>Tickets</dt><dd>${handled}</dd></div>
         </dl>
+        ${
+          lastThought
+            ? `<div class="bubble">💭 ${escapeHtml(lastThought.detail)}<span class="bubble-when">${timeAgo(lastThought.createdAt)}</span></div>`
+            : `<div class="bubble muted">💭 …no thoughts yet</div>`
+        }
       </article>`;
+      })
+      .join("\n");
+
+    const thoughts = events
+      .filter((e) => e.kind === "thought")
+      .slice(0, 25)
+      .map((e) => {
+        const color = AGENT_COLORS[e.agent] ?? "#697177";
+        return `
+      <div class="evt">
+        <span class="evt-agent" style="--agent:${color}">${escapeHtml(e.agent)}</span>
+        <span class="evt-detail">💭 ${escapeHtml(e.detail)}${e.ticketId ? ` <em>· ticket ${e.ticketId.slice(0, 8)}</em>` : ""}</span>
+        <span class="evt-when">${timeAgo(e.createdAt)}</span>
+      </div>`;
       })
       .join("\n");
 
@@ -527,6 +553,10 @@ router.get("/api/admin/agents", adminAuth, async (req: Request, res: Response) =
         content: `<h2>Core fleet</h2>
   <div class="grid">
 ${agentCards}
+  </div>
+  <h2>Worker thoughts</h2>
+  <div class="feed">
+${thoughts || `<div class="empty">No thoughts yet — the workers think out loud as they pick up their next task.</div>`}
   </div>`,
         script: `  setTimeout(() => location.reload(), 20000);`,
       }),

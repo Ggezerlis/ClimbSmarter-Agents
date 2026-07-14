@@ -1,6 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { logger } from "./logger";
-import { FLEET, logAgentEvent } from "./agentLog";
+import { FLEET, logAgentEvent, logAgentThought } from "./agentLog";
 
 export interface TriageResult {
   category: "bug" | "billing" | "training_question" | "account" | "spam" | "other";
@@ -59,7 +59,8 @@ spam: marketing mail, automated notifications, bounces, out-of-office, anything 
 other: anything else written by a real human
 
 Respond with ONLY valid JSON (no markdown fences, no explanation):
-{"category":""}`;
+{"category":"","reason":""}
+"reason" is ONE short sentence (max 20 words) explaining your classification, written in first person as your own thinking, e.g. "Sounds like a crash report — this is one for my bug skill." Never quote more than a few words of the email in it.`;
 
 const DRAFT_STYLE = `Write a reply email. Tone: friendly, concise, first-person, like a real person, under 150 words. Sign it exactly "George — ClimbSmarter". If the sender wrote in Greek, reply in Greek. Output ONLY the reply text — no JSON, no preamble, no subject line.`;
 
@@ -112,11 +113,11 @@ async function classify(
   client: Anthropic,
   ticketId: string,
   userContent: string,
-): Promise<TriageResult["category"]> {
+): Promise<{ category: TriageResult["category"]; reason: string }> {
   try {
     const message = await client.messages.create({
       model: MODEL,
-      max_tokens: 50,
+      max_tokens: 120,
       system: TRIAGE_AGENT_PROMPT,
       messages: [{ role: "user", content: userContent }],
     });
@@ -128,16 +129,20 @@ async function classify(
       "category" in parsed &&
       VALID_CATEGORIES.has(String((parsed as Record<string, unknown>).category))
     ) {
-      return String((parsed as Record<string, unknown>).category) as TriageResult["category"];
+      const obj = parsed as Record<string, unknown>;
+      return {
+        category: String(obj.category) as TriageResult["category"],
+        reason: typeof obj.reason === "string" ? obj.reason.slice(0, 300) : "",
+      };
     }
     logger.error({ ticketId }, "aiTriage: classifier returned unexpected shape — defaulting to other");
-    return "other";
+    return { category: "other", reason: "" };
   } catch (err: unknown) {
     logger.error(
       { err: err instanceof Error ? err.message : String(err), ticketId },
       "aiTriage: classifier failed — defaulting to other",
     );
-    return "other";
+    return { category: "other", reason: "" };
   }
 }
 
@@ -191,8 +196,12 @@ export async function triageEmail(
     bodyText,
   ].join("\n");
 
-  const category = await classify(client, ticketId, userContent);
+  const { category, reason } = await classify(client, ticketId, userContent);
   logger.info({ ticketId, category }, "aiTriage: classified");
+  if (reason) {
+    // Hermes' real reasoning from the classifier call — his inner monologue.
+    await logAgentThought(FLEET.support.name, ticketId, reason);
+  }
   await logAgentEvent(
     FLEET.support.name,
     "classified",
