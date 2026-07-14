@@ -5,6 +5,7 @@ import { eq } from "drizzle-orm";
 import { db, supportTicketsTable } from "@workspace/db";
 import { logger } from "../lib/logger";
 import { triageEmail } from "../lib/aiTriage";
+import { FLEET, logAgentEvent } from "../lib/agentLog";
 
 const router: IRouter = Router();
 
@@ -205,6 +206,7 @@ router.post("/", inboundLimiter, async (req: Request, res: Response) => {
     }
 
     logger.info({ ticketId: ticket.id, emailId }, "supportInbound: ticket created");
+    await logAgentEvent(FLEET.triage.name, "intake", ticket.id, "new support email received and filed");
     await processTicket(ticket.id, emailId);
   } catch (err: unknown) {
     logger.error(
@@ -238,6 +240,7 @@ if (process.env.NODE_ENV !== "production") {
         .returning({ id: supportTicketsTable.id });
 
       logger.info({ ticketId: ticket.id }, "supportInbound: TEST ticket created (dev mode)");
+      await logAgentEvent(FLEET.triage.name, "intake", ticket.id, "test email received (dev mode)");
 
       const result = await triageEmail(
         ticket.id,

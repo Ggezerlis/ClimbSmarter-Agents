@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { logger } from "./logger";
+import { FLEET, logAgentEvent } from "./agentLog";
 
 export interface TriageResult {
   category: "bug" | "billing" | "training_question" | "account" | "spam" | "other";
@@ -192,6 +193,12 @@ export async function triageEmail(
 
   const category = await classify(client, ticketId, userContent);
   logger.info({ ticketId, category }, "aiTriage: classified");
+  await logAgentEvent(
+    FLEET.triage.name,
+    "classified",
+    ticketId,
+    category === "spam" ? "flagged as spam — gated, no draft" : `routed to ${FLEET[category].name} (${category})`,
+  );
 
   if (category === "spam") {
     // Spam (including injection attempts) never reaches a drafting agent.
@@ -199,5 +206,10 @@ export async function triageEmail(
   }
 
   const draftReply = await draft(client, ticketId, category, userContent);
+  if (draftReply) {
+    await logAgentEvent(FLEET[category].name, "drafted", ticketId, `draft ready (${draftReply.length} chars)`);
+  } else {
+    await logAgentEvent(FLEET[category].name, "error", ticketId, "draft failed — ticket kept without draft");
+  }
   return { category, draftReply };
 }

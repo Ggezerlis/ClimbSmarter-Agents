@@ -23,3 +23,18 @@ export const supportTicketsTable = pgTable("support_tickets", {
   // Populated when status becomes "sent".
   sentAt: timestamp("sent_at", { withTimezone: true }),
 });
+
+// Activity log for the agent fleet: one row per agent action (intake,
+// classification, draft, human send/dismiss). Powers the /api/admin/agents
+// dashboard (status, heartbeat, live feed). Purely observational — writing
+// to this table must never block or fail the support pipeline.
+export const agentEventsTable = pgTable("agent_events", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  // Agent name, e.g. "Hermes", "Hephaestus", or "George (human)".
+  agent: text("agent").notNull(),
+  // intake | classified | drafted | sent | dismissed | error
+  kind: text("kind").notNull(),
+  ticketId: uuid("ticket_id"),
+  detail: text("detail").notNull().default(""),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});

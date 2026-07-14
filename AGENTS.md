@@ -19,15 +19,18 @@ inbound email (Resend webhook, Svix-verified, 60 req/min limit)
         ▼
  ┌───────────────────────────────────────────────┐
  │  SPECIALIST DRAFT AGENTS (one per category)    │
- │  1. BUG-REPORT AGENT      – repro info, no ETAs│
- │  2. BILLING AGENT         – never resolves;    │
+ │  1. HEPHAESTUS 🔨 Bug-Report – repro, no ETAs  │
+ │  2. PLUTUS 💳 Billing     – never resolves;    │
  │     "George reviews within 24h" only           │
- │  3. TRAINING AGENT        – climbing answers,  │
+ │  3. ATLAS 🧗 Training     – climbing answers,  │
  │     no medical advice                          │
- │  4. ACCOUNT AGENT         – self-service steps,│
+ │  4. ATHENA 🔑 Account     – self-service steps,│
  │     never touches passwords                    │
- │  5. GENERAL AGENT (other) – warm catch-all     │
+ │  5. IRIS 💬 General (other) – warm catch-all   │
  └──────────────────┬────────────────────────────┘
+ (The triage router is HERMES 🧭. Every agent action is
+  logged to agent_events and shown on the fleet dashboard
+  at /api/admin/agents: status, heartbeat, live feed.)
                     ▼
         ticket saved with draft (status: drafted)
                     │

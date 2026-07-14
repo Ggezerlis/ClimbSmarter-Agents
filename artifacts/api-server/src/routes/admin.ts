@@ -1,9 +1,10 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { Resend } from "resend";
 import { eq, desc } from "drizzle-orm";
-import { db, supportTicketsTable } from "@workspace/db";
+import { db, supportTicketsTable, agentEventsTable } from "@workspace/db";
 import { adminAuth } from "../middlewares/adminAuth";
 import { logger } from "../lib/logger";
+import { FLEET, logAgentEvent } from "../lib/agentLog";
 
 const router: IRouter = Router();
 
@@ -35,14 +36,24 @@ async function getResendClient(): Promise<Resend | null> {
   }
 }
 
-// Category -> specialist agent presentation (5-agent system + spam gate).
+// Category -> specialist agent presentation (fleet personas + spam gate).
 const AGENT_META: Record<string, { label: string; color: string; icon: string }> = {
-  bug: { label: "Bug-Report Agent", color: "#e5484d", icon: "🪲" },
-  billing: { label: "Billing Agent", color: "#f5a623", icon: "💳" },
-  training_question: { label: "Training Agent", color: "#30a46c", icon: "🧗" },
-  account: { label: "Account Agent", color: "#0091ff", icon: "🔑" },
-  other: { label: "General Agent", color: "#8e4ec6", icon: "💬" },
-  spam: { label: "Spam Gate", color: "#697177", icon: "🛑" },
+  bug: { label: `${FLEET.bug.name} · Bug-Report`, color: "#e5484d", icon: FLEET.bug.icon },
+  billing: { label: `${FLEET.billing.name} · Billing`, color: "#f5a623", icon: FLEET.billing.icon },
+  training_question: { label: `${FLEET.training_question.name} · Training`, color: "#30a46c", icon: FLEET.training_question.icon },
+  account: { label: `${FLEET.account.name} · Account`, color: "#0091ff", icon: FLEET.account.icon },
+  other: { label: `${FLEET.other.name} · General`, color: "#8e4ec6", icon: FLEET.other.icon },
+  spam: { label: `${FLEET.triage.name} · Spam Gate`, color: "#697177", icon: "🛑" },
+};
+
+const AGENT_COLORS: Record<string, string> = {
+  [FLEET.triage.name]: "#64748b",
+  [FLEET.bug.name]: "#e5484d",
+  [FLEET.billing.name]: "#f5a623",
+  [FLEET.training_question.name]: "#30a46c",
+  [FLEET.account.name]: "#0091ff",
+  [FLEET.other.name]: "#8e4ec6",
+  "George (human)": "#d4a017",
 };
 
 const STATUS_META: Record<string, { label: string; color: string }> = {
@@ -143,6 +154,9 @@ router.get("/api/admin/support", adminAuth, async (req: Request, res: Response) 
   .top-inner { max-width: 960px; margin: 0 auto; padding: 14px 20px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
   .brand { font-weight: 700; font-size: 16px; letter-spacing: -.2px; }
   .brand b { color: var(--accent); }
+  .navlink { font-size: 13px; text-decoration: none; color: var(--accent); border: 1px solid var(--line);
+             padding: 5px 12px; border-radius: 999px; }
+  .navlink:hover { border-color: var(--accent); }
   .stats { display: flex; gap: 8px; margin-left: auto; }
   .stat { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 4px 12px; text-align: center; }
   .stat b { display: block; font-size: 16px; }
@@ -194,6 +208,7 @@ router.get("/api/admin/support", adminAuth, async (req: Request, res: Response) 
 <body>
 <div class="top"><div class="top-inner">
   <span class="brand">Climb<b>Smarter</b> · Support</span>
+  <a class="navlink" href="/api/admin/agents?admin_token=${tok}">🛰️ Agents</a>
   <div class="stats">
     <div class="stat"><b>${counts.new}</b><span>new</span></div>
     <div class="stat"><b>${counts.drafted}</b><span>drafted</span></div>
@@ -250,6 +265,144 @@ router.get("/api/admin/support", adminAuth, async (req: Request, res: Response) 
     logger.error(
       { err: err instanceof Error ? err.message : String(err) },
       "admin.support: failed to render page",
+    );
+    res.status(500).send("Internal error");
+  }
+});
+
+// Fleet dashboard: every agent as a card (status, heartbeat, model, tickets
+// handled) plus a live communications-style feed of agent actions. Same
+// ADMIN_SECRET gate and /api prefix as the support page.
+router.get("/api/admin/agents", adminAuth, async (req: Request, res: Response) => {
+  try {
+    const adminToken = typeof req.query.admin_token === "string" ? req.query.admin_token : "";
+    const tok = encodeURIComponent(adminToken);
+
+    const events = await db
+      .select()
+      .from(agentEventsTable)
+      .orderBy(desc(agentEventsTable.createdAt))
+      .limit(100);
+
+    const now = Date.now();
+    const fleet = [FLEET.triage, FLEET.bug, FLEET.billing, FLEET.training_question, FLEET.account, FLEET.other];
+
+    const agentCards = fleet
+      .map((a) => {
+        const mine = events.filter((e) => e.agent === a.name);
+        const last = mine[0];
+        const lastMs = last ? now - last.createdAt.getTime() : Infinity;
+        const working = lastMs < 90_000;
+        const handled = new Set(mine.filter((e) => e.ticketId).map((e) => e.ticketId)).size;
+        const color = AGENT_COLORS[a.name] ?? "#697177";
+        return `
+      <article class="agent-card" style="--agent:${color}">
+        <header>
+          <span class="avatar">${a.icon}</span>
+          <div class="who"><b>${a.name}</b><span>${a.role}</span></div>
+          <span class="dot ${working ? "on" : ""}" title="${working ? "Working" : "Idle"}"></span>
+        </header>
+        <dl>
+          <div><dt>Status</dt><dd class="${working ? "working" : "idle"}">${working ? "Working" : "Idle"}</dd></div>
+          <div><dt>Heartbeat</dt><dd>${last ? timeAgo(last.createdAt) : "—"}</dd></div>
+          <div><dt>Model</dt><dd>Sonnet 4.6</dd></div>
+          <div><dt>Tickets</dt><dd>${handled}</dd></div>
+        </dl>
+      </article>`;
+      })
+      .join("\n");
+
+    const feed = events
+      .slice(0, 40)
+      .map((e) => {
+        const color = AGENT_COLORS[e.agent] ?? "#697177";
+        return `
+      <div class="evt">
+        <span class="evt-agent" style="--agent:${color}">${escapeHtml(e.agent)}</span>
+        <span class="evt-kind">${escapeHtml(e.kind)}</span>
+        <span class="evt-detail">${escapeHtml(e.detail)}${e.ticketId ? ` <em>· ticket ${e.ticketId.slice(0, 8)}</em>` : ""}</span>
+        <span class="evt-when">${timeAgo(e.createdAt)}</span>
+      </div>`;
+      })
+      .join("\n");
+
+    res.status(200).type("html").send(`<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ClimbSmarter Agents</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #f7f8fa; --panel: #ffffff; --text: #17191c; --muted: #697177;
+    --line: #e4e7eb; --accent: #1f6feb; --accent-t: #ffffff; --shadow: 0 1px 3px rgba(0,0,0,.07), 0 8px 24px rgba(0,0,0,.05);
+    --ok: #30a46c;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #0d1017; --panel: #151922; --text: #e8eaed; --muted: #8b949e; --line: #262d38; --shadow: 0 1px 3px rgba(0,0,0,.5); }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.55 -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .top { position: sticky; top: 0; z-index: 5; backdrop-filter: blur(10px);
+         background: color-mix(in srgb, var(--bg) 82%, transparent); border-bottom: 1px solid var(--line); }
+  .top-inner { max-width: 1080px; margin: 0 auto; padding: 14px 20px; display: flex; align-items: center; gap: 14px; }
+  .brand { font-weight: 700; font-size: 16px; }
+  .brand b { color: var(--accent); }
+  .navlink { font-size: 13px; text-decoration: none; color: var(--accent); border: 1px solid var(--line);
+             padding: 5px 12px; border-radius: 999px; margin-left: auto; }
+  .navlink:hover { border-color: var(--accent); }
+  main { max-width: 1080px; margin: 0 auto; padding: 20px; }
+  h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 1.2px; color: var(--muted); margin: 22px 0 12px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px; }
+  .agent-card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); padding: 14px 16px; }
+  .agent-card header { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+  .avatar { width: 38px; height: 38px; display: grid; place-items: center; font-size: 19px; border-radius: 50%;
+            background: color-mix(in srgb, var(--agent) 15%, transparent); border: 1px solid color-mix(in srgb, var(--agent) 40%, transparent); }
+  .who { display: flex; flex-direction: column; line-height: 1.25; }
+  .who b { font-size: 14.5px; }
+  .who span { font-size: 11.5px; color: var(--muted); }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); opacity: .4; margin-left: auto; }
+  .dot.on { background: var(--ok); opacity: 1; box-shadow: 0 0 8px var(--ok); }
+  dl { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 14px; margin: 0; }
+  dt { font-size: 10px; text-transform: uppercase; letter-spacing: .8px; color: var(--muted); }
+  dd { margin: 1px 0 0; font-size: 13px; font-weight: 600; }
+  dd.working { color: var(--ok); }
+  dd.idle { color: var(--muted); font-weight: 400; }
+  .feed { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); padding: 6px 0; }
+  .evt { display: flex; gap: 10px; align-items: baseline; padding: 9px 16px; border-bottom: 1px solid var(--line); font-size: 13px; flex-wrap: wrap; }
+  .evt:last-child { border-bottom: 0; }
+  .evt-agent { font-weight: 700; color: var(--agent); }
+  .evt-kind { font-size: 10.5px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted);
+              border: 1px solid var(--line); border-radius: 5px; padding: 1px 6px; }
+  .evt-detail { color: var(--text); }
+  .evt-detail em { color: var(--muted); font-style: normal; }
+  .evt-when { margin-left: auto; color: var(--muted); font-size: 11.5px; white-space: nowrap; }
+  .empty { text-align: center; color: var(--muted); padding: 40px 0; }
+</style>
+</head>
+<body>
+<div class="top"><div class="top-inner">
+  <span class="brand">Climb<b>Smarter</b> · Agents</span>
+  <a class="navlink" href="/api/admin/support?admin_token=${tok}">📥 Support inbox</a>
+</div></div>
+<main>
+  <h2>Core fleet</h2>
+  <div class="grid">
+${agentCards}
+  </div>
+  <h2>Live feed</h2>
+  <div class="feed">
+${feed || `<div class="empty">No agent activity yet — it starts the moment the first support email arrives.</div>`}
+  </div>
+</main>
+<script>setTimeout(() => location.reload(), 20000);</script>
+</body>
+</html>`);
+  } catch (err: unknown) {
+    logger.error(
+      { err: err instanceof Error ? err.message : String(err) },
+      "admin.agents: failed to render page",
     );
     res.status(500).send("Internal error");
   }
@@ -317,6 +470,7 @@ router.patch("/api/admin/support/tickets/:id/send", adminAuth, async (req: Reque
       .where(eq(supportTicketsTable.id, id));
 
     logger.info({ ticketId: id }, "admin.send: ticket sent");
+    await logAgentEvent("George (human)", "sent", id, "approved draft and sent reply");
     res.status(200).json({ ok: true });
   } catch (err: unknown) {
     logger.error(
@@ -335,6 +489,7 @@ router.patch("/api/admin/support/tickets/:id/dismiss", adminAuth, async (req: Re
       .set({ status: "dismissed" })
       .where(eq(supportTicketsTable.id, id));
     logger.info({ ticketId: id }, "admin.dismiss: ticket dismissed");
+    await logAgentEvent("George (human)", "dismissed", id, "dismissed ticket");
     res.status(200).json({ ok: true });
   } catch (err: unknown) {
     logger.error(
