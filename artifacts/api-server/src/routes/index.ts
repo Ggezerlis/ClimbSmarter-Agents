@@ -1,4 +1,5 @@
 import { Router, type IRouter } from "express";
+import { startCompanyAgents } from "../lib/companyAgents";
 import healthRouter from "./health";
 import authRouter from "./auth";
 import trainingRouter from "./training";
@@ -14,6 +15,10 @@ import shareRouter from "./share";
 import adminRouter from "./admin";
 
 const router: IRouter = Router();
+
+// Boot the autonomous agent fleet (Argus, Metis, Calliope, Atlas, Chief).
+// Idempotent, fully internal — none of these agents can take outward actions.
+startCompanyAgents();
 
 router.use(healthRouter);
 router.use(authRouter);

@@ -194,22 +194,24 @@ export async function triageEmail(
   const category = await classify(client, ticketId, userContent);
   logger.info({ ticketId, category }, "aiTriage: classified");
   await logAgentEvent(
-    FLEET.triage.name,
+    FLEET.support.name,
     "classified",
     ticketId,
-    category === "spam" ? "flagged as spam — gated, no draft" : `routed to ${FLEET[category].name} (${category})`,
+    category === "spam"
+      ? "flagged as spam — gated, no draft"
+      : `classified as ${category} — drafting with ${category} skill`,
   );
 
   if (category === "spam") {
-    // Spam (including injection attempts) never reaches a drafting agent.
+    // Spam (including injection attempts) never reaches the drafting stage.
     return { category, draftReply: "" };
   }
 
   const draftReply = await draft(client, ticketId, category, userContent);
   if (draftReply) {
-    await logAgentEvent(FLEET[category].name, "drafted", ticketId, `draft ready (${draftReply.length} chars)`);
+    await logAgentEvent(FLEET.support.name, "drafted", ticketId, `${category} draft ready (${draftReply.length} chars)`);
   } else {
-    await logAgentEvent(FLEET[category].name, "error", ticketId, "draft failed — ticket kept without draft");
+    await logAgentEvent(FLEET.support.name, "error", ticketId, "draft failed — ticket kept without draft");
   }
   return { category, draftReply };
 }

@@ -1,7 +1,7 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { Resend } from "resend";
 import { eq, desc } from "drizzle-orm";
-import { db, supportTicketsTable, agentEventsTable } from "@workspace/db";
+import { db, supportTicketsTable, agentEventsTable, agentReportsTable } from "@workspace/db";
 import { adminAuth } from "../middlewares/adminAuth";
 import { logger } from "../lib/logger";
 import { FLEET, logAgentEvent } from "../lib/agentLog";
@@ -36,24 +36,24 @@ async function getResendClient(): Promise<Resend | null> {
   }
 }
 
-// Category -> specialist agent presentation (fleet personas + spam gate).
+// Ticket badges: which of Hermes' category skills produced the draft.
 const AGENT_META: Record<string, { label: string; color: string; icon: string }> = {
-  bug: { label: `${FLEET.bug.name} · Bug-Report`, color: "#e5484d", icon: FLEET.bug.icon },
-  billing: { label: `${FLEET.billing.name} · Billing`, color: "#f5a623", icon: FLEET.billing.icon },
-  training_question: { label: `${FLEET.training_question.name} · Training`, color: "#30a46c", icon: FLEET.training_question.icon },
-  account: { label: `${FLEET.account.name} · Account`, color: "#0091ff", icon: FLEET.account.icon },
-  other: { label: `${FLEET.other.name} · General`, color: "#8e4ec6", icon: FLEET.other.icon },
-  spam: { label: `${FLEET.triage.name} · Spam Gate`, color: "#697177", icon: "🛑" },
+  bug: { label: `${FLEET.support.name} · Bug`, color: "#e5484d", icon: "🔨" },
+  billing: { label: `${FLEET.support.name} · Billing`, color: "#f5a623", icon: "💳" },
+  training_question: { label: `${FLEET.support.name} · Training`, color: "#30a46c", icon: "🧗" },
+  account: { label: `${FLEET.support.name} · Account`, color: "#0091ff", icon: "🔑" },
+  other: { label: `${FLEET.support.name} · General`, color: "#8e4ec6", icon: "💬" },
+  spam: { label: `${FLEET.support.name} · Spam Gate`, color: "#697177", icon: "🛑" },
 };
 
 const AGENT_COLORS: Record<string, string> = {
-  [FLEET.triage.name]: "#64748b",
-  [FLEET.bug.name]: "#e5484d",
-  [FLEET.billing.name]: "#f5a623",
-  [FLEET.training_question.name]: "#30a46c",
-  [FLEET.account.name]: "#0091ff",
-  [FLEET.other.name]: "#8e4ec6",
-  "George (human)": "#d4a017",
+  [FLEET.chief.name]: "#d4a017",
+  [FLEET.support.name]: "#1f6feb",
+  [FLEET.ops.name]: "#64748b",
+  [FLEET.analytics.name]: "#30a46c",
+  [FLEET.content.name]: "#8e4ec6",
+  [FLEET.research.name]: "#e5484d",
+  "George (human)": "#f5a623",
 };
 
 const STATUS_META: Record<string, { label: string; color: string }> = {
@@ -283,9 +283,14 @@ router.get("/api/admin/agents", adminAuth, async (req: Request, res: Response) =
       .from(agentEventsTable)
       .orderBy(desc(agentEventsTable.createdAt))
       .limit(100);
+    const reports = await db
+      .select()
+      .from(agentReportsTable)
+      .orderBy(desc(agentReportsTable.createdAt))
+      .limit(12);
 
     const now = Date.now();
-    const fleet = [FLEET.triage, FLEET.bug, FLEET.billing, FLEET.training_question, FLEET.account, FLEET.other];
+    const fleet = [FLEET.chief, FLEET.support, FLEET.ops, FLEET.analytics, FLEET.content, FLEET.research];
 
     const agentCards = fleet
       .map((a) => {
@@ -379,6 +384,11 @@ router.get("/api/admin/agents", adminAuth, async (req: Request, res: Response) =
   .evt-detail em { color: var(--muted); font-style: normal; }
   .evt-when { margin-left: auto; color: var(--muted); font-size: 11.5px; white-space: nowrap; }
   .empty { text-align: center; color: var(--muted); padding: 40px 0; }
+  details.report { border-bottom: 1px solid var(--line); }
+  details.report:last-child { border-bottom: 0; }
+  details.report summary { display: flex; gap: 10px; align-items: baseline; padding: 10px 16px; cursor: pointer; font-size: 13px; }
+  details.report pre { margin: 0; padding: 10px 16px 14px; white-space: pre-wrap; font-size: 12.5px; color: var(--text);
+                       background: color-mix(in srgb, var(--bg) 60%, transparent); }
 </style>
 </head>
 <body>
@@ -390,6 +400,24 @@ router.get("/api/admin/agents", adminAuth, async (req: Request, res: Response) =
   <h2>Core fleet</h2>
   <div class="grid">
 ${agentCards}
+  </div>
+  <h2>Reports</h2>
+  <div class="feed">
+${
+  reports.length
+    ? reports
+        .map((r) => {
+          const color = AGENT_COLORS[r.agent] ?? "#697177";
+          return `
+      <details class="report">
+        <summary><span class="evt-agent" style="--agent:${color}">${escapeHtml(r.agent)}</span>
+          <b>${escapeHtml(r.title)}</b><span class="evt-when">${timeAgo(r.createdAt)}</span></summary>
+        <pre>${escapeHtml(r.body).slice(0, 8000)}</pre>
+      </details>`;
+        })
+        .join("\n")
+    : `<div class="empty">No reports yet — Argus, Metis, Calliope, Atlas and Chief file them on their own schedules.</div>`
+}
   </div>
   <h2>Live feed</h2>
   <div class="feed">

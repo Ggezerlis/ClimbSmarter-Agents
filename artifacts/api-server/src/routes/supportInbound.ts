@@ -206,7 +206,7 @@ router.post("/", inboundLimiter, async (req: Request, res: Response) => {
     }
 
     logger.info({ ticketId: ticket.id, emailId }, "supportInbound: ticket created");
-    await logAgentEvent(FLEET.triage.name, "intake", ticket.id, "new support email received and filed");
+    await logAgentEvent(FLEET.support.name, "intake", ticket.id, "new support email received and filed");
     await processTicket(ticket.id, emailId);
   } catch (err: unknown) {
     logger.error(
@@ -240,7 +240,7 @@ if (process.env.NODE_ENV !== "production") {
         .returning({ id: supportTicketsTable.id });
 
       logger.info({ ticketId: ticket.id }, "supportInbound: TEST ticket created (dev mode)");
-      await logAgentEvent(FLEET.triage.name, "intake", ticket.id, "test email received (dev mode)");
+      await logAgentEvent(FLEET.support.name, "intake", ticket.id, "test email received (dev mode)");
 
       const result = await triageEmail(
         ticket.id,

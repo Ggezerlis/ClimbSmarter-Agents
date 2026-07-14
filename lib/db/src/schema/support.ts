@@ -30,11 +30,23 @@ export const supportTicketsTable = pgTable("support_tickets", {
 // to this table must never block or fail the support pipeline.
 export const agentEventsTable = pgTable("agent_events", {
   id: uuid("id").primaryKey().defaultRandom(),
-  // Agent name, e.g. "Hermes", "Hephaestus", or "George (human)".
+  // Agent name, e.g. "Hermes", "Argus", or "George (human)".
   agent: text("agent").notNull(),
-  // intake | classified | drafted | sent | dismissed | error
+  // intake | classified | drafted | sent | dismissed | error | heartbeat | report
   kind: text("kind").notNull(),
   ticketId: uuid("ticket_id"),
   detail: text("detail").notNull().default(""),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Work products of the autonomous agents (Argus incident notes, Metis
+// analytics digests, Calliope content drafts, Atlas research briefs,
+// Chief daily briefs). Internal documents only — producing a report never
+// triggers any outward-facing action.
+export const agentReportsTable = pgTable("agent_reports", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  agent: text("agent").notNull(),
+  title: text("title").notNull(),
+  body: text("body").notNull().default(""),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });

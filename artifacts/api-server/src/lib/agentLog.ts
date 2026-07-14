@@ -1,23 +1,32 @@
 import { db, agentEventsTable } from "@workspace/db";
 import { logger } from "./logger";
 
-// The agent fleet. Category -> persona. Hermes is the triage router; the
-// five specialists each own one draft-producing category. Displayed on the
-// /api/admin/agents dashboard and in ticket cards.
+// The company fleet. Each agent has one job. Hermes owns the entire support
+// pipeline (his category-specialist prompts are his internal skill set); the
+// others run autonomously on schedules via companyAgents.ts. Displayed on the
+// /api/admin/agents dashboard.
 export const FLEET = {
-  triage: { name: "Hermes", role: "Triage Router", icon: "🧭" },
-  bug: { name: "Hephaestus", role: "Bug-Report Agent", icon: "🔨" },
-  billing: { name: "Plutus", role: "Billing Agent", icon: "💳" },
-  training_question: { name: "Atlas", role: "Training Agent", icon: "🧗" },
-  account: { name: "Athena", role: "Account Agent", icon: "🔑" },
-  other: { name: "Iris", role: "General Agent", icon: "💬" },
+  chief: { name: "Chief", role: "Orchestrator", icon: "🎯" },
+  support: { name: "Hermes", role: "Support Agent", icon: "🧭" },
+  ops: { name: "Argus", role: "Ops Monitor", icon: "👁️" },
+  analytics: { name: "Metis", role: "Analytics", icon: "📊" },
+  content: { name: "Calliope", role: "Content", icon: "✍️" },
+  research: { name: "Atlas", role: "Research", icon: "🧠" },
 } as const;
 
-export type AgentEventKind = "intake" | "classified" | "drafted" | "sent" | "dismissed" | "error";
+export type AgentEventKind =
+  | "intake"
+  | "classified"
+  | "drafted"
+  | "sent"
+  | "dismissed"
+  | "error"
+  | "heartbeat"
+  | "report";
 
 /**
  * Record an agent action for the fleet dashboard. Fire-safe: any failure is
- * logged and swallowed — observability must never break the support pipeline.
+ * logged and swallowed — observability must never break the pipelines.
  */
 export async function logAgentEvent(
   agent: string,
